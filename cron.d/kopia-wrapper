@@ -1,0 +1,12 @@
+# cron.d file for kopia-wrapper
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+KOPIA_WRAPPER_HOME=/etc/kopia-wrapper
+
+# Run policy snapshots followed by quick maintenance hourly from 0105 to 2305
+5 1-23 * * * root "${KOPIA_WRAPPER_HOME}/bin/kopia-wrapper.sh" --cron snapshots maintenance-quick
+
+# Run policy snapshots followed by full maintenance once at 0005
+5 0 * * * root "${KOPIA_WRAPPER_HOME}/bin/kopia-wrapper.sh" --cron snapshots maintenance-full
