@@ -115,12 +115,12 @@ parse_notification_vars() {
 }
 
 ##
-# Set up log file for all script output.
+# Start a log file for all script output.
 #
 # Globals:
 #   KOPIA_WRAPPER_LOG
 #
-setup_logfile() {
+start_logfile() {
     KOPIA_WRAPPER_LOG="/tmp/kopia-wrapper.$$.log"
 
     # Save original stdout, stderr
@@ -146,31 +146,42 @@ stop_logfile() {
 }
 
 ##
-# Summary for top of notification
+# Output a summary of execution results.
+#
+# Globals:
+#   KOPIA_WRAPPER_SUBJECT
+#   KOPIA_WRAPPER_SNAPSHOT_RESULTS
+#   KOPIA_WRAPPER_MAINTENANCE_RESULTS
 #
 # Output:
-#   - subject is first line
-#   - summary of snapshot/maintenance results follows
+#   - first line is KOPIA_WRAPPER_SUBJECT
+#   - second line is blank
+#   - following lines:
+#     - snapshot summary, if any exist
+#     - maintenance summary, if any exist
 #
 result_summary() {
     echo "${KOPIA_WRAPPER_SUBJECT}"
     echo ""
     if [[ -v KOPIA_WRAPPER_SNAPSHOT_RESULTS[@] ]]; then
-        echo " + Snapshot results:"
-        echo "${KOPIA_WRAPPER_SNAPSHOT_RESULTS[@]}"
+        echo "++ Snapshot Summary ++"
+        echo "----------------------"
+        printf "%s\n" "${KOPIA_WRAPPER_SNAPSHOT_RESULTS[@]}"
         echo ""
     fi
     if [[ -v KOPIA_WRAPPER_MAINTENANCE_RESULTS[@] ]]; then
-        echo " + Maintenance results:"
-        echo "${KOPIA_WRAPPER_MAINTENANCE_RESULTS[@]}"
+        echo "++ Maintenance Summary ++"
+        echo "-------------------------"
+        printf "%s\n" "${KOPIA_WRAPPER_MAINTENANCE_RESULTS[@]}"
         echo ""
     fi
-    echo " + Log Output:"
+    echo "++ Log Output ++"
+    echo "----------------"
     echo ""
 }
 
 ##
-# Send results as notification as defined in config. Clean up temporary
+# Send notification of execution as defined in config. Clean up temporary
 # files.
 #
 # Globals:
@@ -198,6 +209,9 @@ notify_and_clean() {
     else
         # No notification command, just output
         {
+            echo "++ No notification command configured, sending to stdout ++"
+            echo "-----------------------------------------------------------"
+
             result_summary
 
             cat "${KOPIA_WRAPPER_LOG}"
@@ -205,6 +219,19 @@ notify_and_clean() {
     fi
 
     rm -f "${KOPIA_WRAPPER_LOG}"
+}
+
+##
+# Read the time elapsed from the last line of the log file.
+#
+# Output:
+#   Extracted time elapsed from log file if found, else empty string.
+#
+# Globals:
+#   KOPIA_WRAPPER_LOG
+#
+read_time_elapsed() {
+    tail -1 "${KOPIA_WRAPPER_LOG}" | awk '/^Time elapsed:/ { print $3 }'
 }
 
 ##
@@ -218,28 +245,47 @@ do_snapshots() {
     # Gather kopia policies, ignore the one called "(global)"
     declare -a kopia_policies
     readarray -t kopia_policies < <(
-                                        kopia policies list |
+                                        "${KW_EXECUTABLE}" policies list |
                                         awk '{print $2}' |
                                         grep -v "\(global\)"
                                     )
 
     # Foreach policy, snapshot
-    local policy RET
     for policy in "${kopia_policies[@]}"; do
-        echo " + Running kopia snapshot for policy: ${policy}"
-        echo " + ----------------------------------"
-        local policy_path="${policy#*:}"
-        kopia snapshot "${policy_path}"
-        RET=$?
+        local policy_path ret time_elapsed result_string
+
+        echo "++ kopia snapshot create ${policy}"
+        echo "----------------------------------------------------------------"
+        policy_path="${policy#*:}"
+        env time -f "\nTime elapsed: %E" \
+            "${KW_EXECUTABLE}" snapshot create "${policy_path}"
+        ret=$?
+        time_elapsed=$(read_time_elapsed)
         echo ""
 
-        if [[ ${RET} -eq 0 ]]; then
-            KOPIA_WRAPPER_SNAPSHOT_RESULTS+=(" + Success: ${policy}")
+        if [[ ${ret} -eq 0 ]]; then
+            result_string="Success"
         else
-            KOPIA_WRAPPER_SNAPSHOT_RESULTS+=(" + Failed(${RET}): ${policy}")
+            result_string="Failed"
             KOPIA_WRAPPER_STATUS="Failed"
         fi
 
+        if [[ ! -v KOPIA_WRAPPER_SNAPSHOT_RESULTS[@] ]]; then
+            # Add header before we add first result
+            local header
+            header=$(
+                printf "%-8s | %4s | %11s | %s\n" \
+                       "Result" "Code" "Time" "Policy"
+                printf "%-8s + %4s + %11s + %s" \
+                       "--------" "----" "-----------" "-------"
+            )
+            KOPIA_WRAPPER_SNAPSHOT_RESULTS+=( "${header}" )
+        fi
+        result_string=$(
+            printf "%-8s | %4s | %11s | %s" \
+                   "${result_string}" "${ret}" "${time_elapsed}" "${policy}"
+        )
+        KOPIA_WRAPPER_SNAPSHOT_RESULTS+=( "${result_string}" )
     done
 }
 
@@ -253,12 +299,49 @@ do_snapshots() {
 # Parameters:
 #   $1 quick|full
 do_maintenance() {
-    local MAINTENANCE_TYPE=$1
+    local maintenance_type=$1
 
-    echo " + Doing kopia maintenance - ${MAINTENANCE_TYPE}"
+    local maintenance_opt ret time_elapsed result_string
+    case "${maintenance_type}" in
+        full)
+            maintenance_opt="--full"
+            ;;
+        *)
+            maintenance_opt="--no-full"
+            ;;
+    esac
+
+    echo "++ kopia maintenance run ${maintenance_opt}"
+    echo "-------------------------------"
+    env time -f "\nTime elapsed: %E" \
+        "${KW_EXECUTABLE}" maintenance run "${maintenance_opt}"
+    ret=$?
+    time_elapsed=$(read_time_elapsed)
     echo ""
 
-    #kopia maintenance run --full
+    if [[ ${ret} -eq 0 ]]; then
+        result_string="Success"
+    else
+        result_string="Failed"
+        KOPIA_WRAPPER_STATUS="Failed"
+    fi
+
+    if [[ ! -v KOPIA_WRAPPER_MAINTENANCE_RESULTS[@] ]]; then
+        # Add header before we add first result
+        local header
+        header=$(
+            printf "%-8s | %4s | %11s | %s\n" \
+                    "Result" "Code" "Time" "Type"
+            printf "%-8s + %4s + %11s + %s" \
+                    "--------" "----" "-----------" "-----"
+        )
+        KOPIA_WRAPPER_MAINTENANCE_RESULTS+=( "${header}" )
+    fi
+    result_string=$(
+        printf "%-8s | %4s | %11s | %s" \
+               "${result_string}" "${ret}" "${time_elapsed}" "${maintenance_type}"
+    )
+    KOPIA_WRAPPER_MAINTENANCE_RESULTS+=("${result_string}")
 }
 
 ##
@@ -286,7 +369,7 @@ main() {
         exit 1
     fi
 
-    setup_logfile
+    start_logfile
 
     trap notify_and_clean EXIT
 
