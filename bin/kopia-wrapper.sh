@@ -72,7 +72,7 @@ parse_parameters() {
 #   Variables defined in kopia-wrapper.conf
 #
 # Parameters:
-#   $1 STATUS Success|Failed
+#   $1 Success|Failed - Success only if all kopia commands were successful.
 #
 # Output: none
 parse_notification_vars() {
@@ -150,29 +150,23 @@ stop_logfile() {
 #
 # Globals:
 #   KOPIA_WRAPPER_SUBJECT
-#   KOPIA_WRAPPER_SNAPSHOT_RESULTS
-#   KOPIA_WRAPPER_MAINTENANCE_RESULTS
+#   KOPIA_WRAPPER_COMMAND_RESULTS
 #
 # Output:
 #   - first line is KOPIA_WRAPPER_SUBJECT
-#   - second line is blank
-#   - following lines:
-#     - snapshot summary, if any exist
-#     - maintenance summary, if any exist
+#   - blank line
+#   - if any command results exist:
+#       - command result summary lines
+#       - blank line
+#   - Log Output heading
 #
 result_summary() {
     echo "${KOPIA_WRAPPER_SUBJECT}"
     echo ""
-    if [[ -v KOPIA_WRAPPER_SNAPSHOT_RESULTS[@] ]]; then
-        echo "++ Snapshot Summary ++"
+    if [[ -v KOPIA_WRAPPER_COMMAND_RESULTS[@] ]]; then
+        echo "++ Command Summary ++"
         echo "----------------------"
-        printf "%s\n" "${KOPIA_WRAPPER_SNAPSHOT_RESULTS[@]}"
-        echo ""
-    fi
-    if [[ -v KOPIA_WRAPPER_MAINTENANCE_RESULTS[@] ]]; then
-        echo "++ Maintenance Summary ++"
-        echo "-------------------------"
-        printf "%s\n" "${KOPIA_WRAPPER_MAINTENANCE_RESULTS[@]}"
+        printf "%s\n" "${KOPIA_WRAPPER_COMMAND_RESULTS[@]}"
         echo ""
     fi
     echo "++ Log Output ++"
@@ -185,19 +179,18 @@ result_summary() {
 # files.
 #
 # Globals:
-#   KOPIA_WRAPPER_STATUS
-#   KOPIA_WRAPPER_SUBJECT
+#   KOPIA_WRAPPER_COMMAND_FAILED
 #   KOPIA_WRAPPER_NOTIFY
 #   KOPIA_WRAPPER_LOG
 #
 notify_and_clean() {
     stop_logfile
 
-    if [[ -z "${KOPIA_WRAPPER_STATUS}" ]]; then
-        KOPIA_WRAPPER_STATUS="Failed"
+    if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "true" ]]; then
+        parse_notification_vars "Failed"
+    else
+        parse_notification_vars "Success"
     fi
-
-    parse_notification_vars "${KOPIA_WRAPPER_STATUS}"
 
     if [[ ${#KOPIA_WRAPPER_NOTIFY[@]} -gt 0 ]]; then
         # A notification command was provided in config
@@ -207,7 +200,7 @@ notify_and_clean() {
             cat "${KOPIA_WRAPPER_LOG}"
         } | "${KOPIA_WRAPPER_NOTIFY[@]}"
     else
-        # No notification command, just output
+        # No notification command, just send to stdout
         {
             echo "++ No notification command configured, sending to stdout ++"
             echo "-----------------------------------------------------------"
@@ -235,13 +228,59 @@ read_time_elapsed() {
 }
 
 ##
-# Iterate kopia policies and perform a snapshot for each sequentially.
+# Execute provided kopia command, capturing elapsed time and return codes.
+#
+# Output:
+#   Kopia execution output
 #
 # Globals:
-#   KOPIA_WRAPPER_STATUS - Set to "Failed" if any one snapshot fails.
-#   KOPIA_WRAPPER_SNAPSHOT_RESULTS - Result of each individual snapshot.
+#   KOPIA_WRAPPER_COMMAND_FAILED - set true if kopia command returns non-zero.
+#   KOPIA_WRAPPER_COMMAND_RESULTS - summarised result of command appended.
 #
-do_snapshots() {
+# Parameters:
+#   $@ - command line parameters to pass quoted to kopia executable
+#
+run_kopia_command() {
+    declare -a kopia_command=("$@")
+
+    local ret time_elapsed result_string
+    echo "++ kopia" "${kopia_command[@]}"
+    echo "-------------------------------------------------------------------"
+    env time -f "\nTime elapsed: %E" \
+        "${KW_EXECUTABLE}" "${kopia_command[@]}"
+    ret=$?
+    time_elapsed=$(read_time_elapsed)
+    echo ""
+
+    result_string="Success"
+    if [[ ${ret} -ne 0 ]]; then
+        KOPIA_WRAPPER_COMMAND_FAILED="true"
+        result_string="Failed"
+    fi
+
+    if [[ ! -v KOPIA_WRAPPER_COMMAND_RESULTS[@] ]]; then
+        # Add header before we add first result
+        local header
+        header=$(
+            printf "%-8s | %4s | %11s | %s\n" \
+                    "Result" "Code" "Time" "Command"
+            printf "%-8s + %4s + %11s + %s" \
+                    "--------" "----" "-----------" "-------"
+        )
+        KOPIA_WRAPPER_COMMAND_RESULTS+=( "${header}" )
+    fi
+    result_string=$(
+        printf "%-8s | %4s | %11s | " \
+               "${result_string}" "${ret}" "${time_elapsed}"
+        echo "${kopia_command[@]}"
+    )
+    KOPIA_WRAPPER_COMMAND_RESULTS+=("${result_string}")
+}
+
+##
+# Generate kopia snapshot commands, and execute each sequentially.
+#
+run_snapshots_command() {
     # Gather kopia policies, ignore the one called "(global)"
     declare -a kopia_policies
     readarray -t kopia_policies < <(
@@ -250,59 +289,29 @@ do_snapshots() {
                                         grep -v "\(global\)"
                                     )
 
-    # Foreach policy, snapshot
+    # Foreach policy, generate command and execute.
     for policy in "${kopia_policies[@]}"; do
-        local policy_path ret time_elapsed result_string
-
-        echo "++ kopia snapshot create ${policy}"
-        echo "----------------------------------------------------------------"
+        local policy_path kopia_command
         policy_path="${policy#*:}"
-        env time -f "\nTime elapsed: %E" \
-            "${KW_EXECUTABLE}" snapshot create "${policy_path}"
-        ret=$?
-        time_elapsed=$(read_time_elapsed)
-        echo ""
-
-        if [[ ${ret} -eq 0 ]]; then
-            result_string="Success"
-        else
-            result_string="Failed"
-            KOPIA_WRAPPER_STATUS="Failed"
-        fi
-
-        if [[ ! -v KOPIA_WRAPPER_SNAPSHOT_RESULTS[@] ]]; then
-            # Add header before we add first result
-            local header
-            header=$(
-                printf "%-8s | %4s | %11s | %s\n" \
-                       "Result" "Code" "Time" "Policy"
-                printf "%-8s + %4s + %11s + %s" \
-                       "--------" "----" "-----------" "-------"
-            )
-            KOPIA_WRAPPER_SNAPSHOT_RESULTS+=( "${header}" )
-        fi
-        result_string=$(
-            printf "%-8s | %4s | %11s | %s" \
-                   "${result_string}" "${ret}" "${time_elapsed}" "${policy}"
+        kopia_command=(
+            "snapshot"
+            "create"
+            "--force-enable-actions"
+            "${policy_path}"
         )
-        KOPIA_WRAPPER_SNAPSHOT_RESULTS+=( "${result_string}" )
+        run_kopia_command "${kopia_command[@]}"
     done
 }
 
 ##
-# Perform a kopia maintenance run
-#
-# Globals:
-#   KOPIA_WRAPPER_STATUS - Set to "Failed" on maintenance failure.
-#   KOPIA_WRAPPER_MAINTENANCE_RESULTS
+# Generate kopia maintenance command, and execute it.
 #
 # Parameters:
 #   $1 quick|full
-do_maintenance() {
-    local maintenance_type=$1
-
-    local maintenance_opt ret time_elapsed result_string
-    case "${maintenance_type}" in
+#
+run_maintenance_command() {
+    local maintenance_opt
+    case "$1" in
         full)
             maintenance_opt="--full"
             ;;
@@ -311,45 +320,23 @@ do_maintenance() {
             ;;
     esac
 
-    echo "++ kopia maintenance run ${maintenance_opt}"
-    echo "-------------------------------"
-    env time -f "\nTime elapsed: %E" \
-        "${KW_EXECUTABLE}" maintenance run "${maintenance_opt}"
-    ret=$?
-    time_elapsed=$(read_time_elapsed)
-    echo ""
-
-    if [[ ${ret} -eq 0 ]]; then
-        result_string="Success"
-    else
-        result_string="Failed"
-        KOPIA_WRAPPER_STATUS="Failed"
-    fi
-
-    if [[ ! -v KOPIA_WRAPPER_MAINTENANCE_RESULTS[@] ]]; then
-        # Add header before we add first result
-        local header
-        header=$(
-            printf "%-8s | %4s | %11s | %s\n" \
-                    "Result" "Code" "Time" "Type"
-            printf "%-8s + %4s + %11s + %s" \
-                    "--------" "----" "-----------" "-----"
-        )
-        KOPIA_WRAPPER_MAINTENANCE_RESULTS+=( "${header}" )
-    fi
-    result_string=$(
-        printf "%-8s | %4s | %11s | %s" \
-               "${result_string}" "${ret}" "${time_elapsed}" "${maintenance_type}"
+    declare -a kopia_command
+    kopia_command=(
+        "maintenance"
+        "run"
+        "${maintenance_opt}"
     )
-    KOPIA_WRAPPER_MAINTENANCE_RESULTS+=("${result_string}")
+
+    run_kopia_command "${kopia_command[@]}"
 }
 
 ##
 # Main function
 #
 # Globals:
-#   KOPIA_WRAPPER_HOME
-#   KOPIA_WRAPPER_STATUS
+#   KOPIA_WRAPPER_HOME - Calculated parent directory of this script's dir.
+#   KOPIA_WRAPPER_COMMANDS - from command line parameters
+#   KOPIA_WRAPPER_COMMAND_FAILED - false, set true if any command fails
 #   Variables defined in kopia-wrapper.conf
 #
 main() {
@@ -360,7 +347,7 @@ main() {
 
     parse_parameters "$@"
 
-    KOPIA_WRAPPER_STATUS="Success"
+    KOPIA_WRAPPER_COMMAND_FAILED="false"
 
     # Make sure we are the only instance of this script running.
     exec 234< $0
@@ -373,18 +360,16 @@ main() {
 
     trap notify_and_clean EXIT
 
-    declare -ga KOPIA_WRAPPER_SNAPSHOT_RESULTS
-    declare -ga KOPIA_WRAPPER_MAINTENANCE_RESULTS
     for command in "${KOPIA_WRAPPER_COMMANDS[@]}"; do
         case "${command}" in
             snapshots)
-                do_snapshots
+                run_snapshots_command
                 ;;
             maintenance-quick)
-                do_maintenance "quick"
+                run_maintenance_command "quick"
                 ;;
             maintenance-full)
-                do_maintenance "full"
+                run_maintenance_command "full"
                 ;;
             *)
                 # Ignore
