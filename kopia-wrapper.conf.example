@@ -41,6 +41,5 @@ KW_SUBJECT="%STATUS% %HOSTLONG%"
 #KW_NOTIFY_CMD="apprise -t 'Kopia - %SUBJECT%' gotify://hostname/token"
 #KW_NOTIFY_CMD="apprise -t '[Kopia] %SUBJECT%' mailto://user:password@gmail.com"
 #
-#KW_NOTIFY_CMD="mail -s '[Kopia] (%STATUS%) %HOSTSHORT%' user@example.com"
-KW_NOTIFY_CMD=""
+KW_NOTIFY_CMD="mail -s '[Kopia] (%STATUS%) %HOSTSHORT%' user@example.com"
 

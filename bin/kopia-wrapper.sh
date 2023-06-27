@@ -8,7 +8,9 @@
 # notification ability, and this is an absolute requirement for servers in
 # production environments.
 #
-# Copyright 2023, Gavin Stewart, Goya Pty Ltd
+# Copyright 2023, Goya Pty Ltd
+#
+# Author: Gavin Stewart <gavin@goya.com.au>
 
 # Requires the following tools to be available in the path:
 #   bash
@@ -353,6 +355,11 @@ main() {
     readonly KOPIA_WRAPPER_HOME
 
     source "${KOPIA_WRAPPER_HOME}/kopia-wrapper.conf" || exit 1
+
+    # Ensure kopia environment is configured
+    set -o allexport
+    source "${KOPIA_WRAPPER_HOME}/kopia-environment.conf" || exit 1
+    set +o allexport
 
     parse_parameters "$@"
 

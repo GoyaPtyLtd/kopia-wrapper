@@ -1,0 +1,14 @@
+[Unit]
+Description=Kopia Server daemon
+
+[Service]
+ExecStart=/etc/kopia-wrapper/bin/kopia-exec.sh server start \
+    --disable-csrf-token-checks \
+    --insecure \
+    --address=127.0.0.1:51515
+WorkingDirectory=/var/tmp
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
