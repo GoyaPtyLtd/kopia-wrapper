@@ -10,6 +10,14 @@
 #
 # Copyright 2023, Gavin Stewart, Goya Pty Ltd
 
+# Requires the following tools to be available in the path:
+#   bash
+#   cat
+#   tail
+#   tee
+#   awk
+#   hostname
+
 set -u
 
 ##
@@ -166,6 +174,7 @@ result_summary() {
     if [[ -v KOPIA_WRAPPER_COMMAND_RESULTS[@] ]]; then
         echo "++ Command Summary ++"
         echo "----------------------"
+        echo ""
         printf "%s\n" "${KOPIA_WRAPPER_COMMAND_RESULTS[@]}"
         echo ""
     fi
@@ -224,7 +233,7 @@ notify_and_clean() {
 #   KOPIA_WRAPPER_LOG
 #
 read_time_elapsed() {
-    tail -1 "${KOPIA_WRAPPER_LOG}" | awk '/^Time elapsed:/ { print $3 }'
+    tail -1 "${KOPIA_WRAPPER_LOG}" | awk '/^Elapsed time:/ { print $3 }'
 }
 
 ##
@@ -246,7 +255,7 @@ run_kopia_command() {
     local ret time_elapsed result_string
     echo "++ kopia" "${kopia_command[@]}"
     echo "-------------------------------------------------------------------"
-    env time -f "\nTime elapsed: %E" \
+    env time -f "\nElapsed time: %E" \
         "${KW_EXECUTABLE}" "${kopia_command[@]}"
     ret=$?
     time_elapsed=$(read_time_elapsed)
@@ -263,7 +272,7 @@ run_kopia_command() {
         local header
         header=$(
             printf "%-8s | %4s | %11s | %s\n" \
-                    "Result" "Code" "Time" "Command"
+                    "Result" "Code" "Elapsed" "Command"
             printf "%-8s + %4s + %11s + %s" \
                     "--------" "----" "-----------" "-------"
         )
