@@ -6,7 +6,7 @@ ExecStart=/etc/kopia-wrapper/bin/kopia-exec.sh server start \
     --disable-csrf-token-checks \
     --insecure \
     --address=127.0.0.1:51515
-WorkingDirectory=/var/tmp
+WorkingDirectory=/etc/kopia-wrapper
 Restart=always
 RestartSec=30
 

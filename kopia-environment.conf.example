@@ -10,8 +10,10 @@
 #KOPIA_SERVER_PASSWORD=my_super_secret_pa55w0rd
 
 # Default for kopia-wrapper
-KOPIA_CONFIG_PATH="/etc/kopia-wrapper/kopia-repository.config"
+KOPIA_CONFIG_PATH="/etc/kopia-wrapper/kopia-repository.conf"
 
 # Ensure these directories exist
 KOPIA_CACHE_DIRECTORY="/var/cache/kopia"
 KOPIA_LOG_DIR="/var/log/kopia"
+
+KOPIA_CHECK_FOR_UPDATES=false
