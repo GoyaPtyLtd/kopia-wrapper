@@ -1,5 +1,7 @@
 [Unit]
 Description=Kopia Server daemon
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 ExecStart=/etc/kopia-wrapper/bin/kopia-exec.sh server start \
