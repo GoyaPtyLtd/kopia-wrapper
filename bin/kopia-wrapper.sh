@@ -347,9 +347,12 @@ run_maintenance_command() {
 #
 # Globals:
 #   KOPIA_WRAPPER_HOME - Calculated parent directory of this script's dir.
-#   KOPIA_WRAPPER_COMMANDS - from command line parameters
-#   KOPIA_WRAPPER_COMMAND_FAILED - false, set true if any command fails
+#   KOPIA_WRAPPER_COMMANDS - from command line parameters.
+#   KOPIA_WRAPPER_COMMAND_FAILED - false, set true if any command fails.
 #   Variables defined in kopia-wrapper.conf
+#
+# Parameters:
+#   $@ - All command line parameters passed in to script.
 #
 main() {
     KOPIA_WRAPPER_HOME="$(realpath -z "$0" | xargs -0 dirname -z | xargs -0 dirname)"
