@@ -234,8 +234,8 @@ notify_and_clean() {
 # Globals:
 #   KOPIA_WRAPPER_LOG
 #
-read_time_elapsed() {
-    tail -1 "${KOPIA_WRAPPER_LOG}" | awk '/^Elapsed time:/ { print $3 }'
+read_elapsed_time() {
+    tail -1 "${KOPIA_WRAPPER_LOG}" | awk '/^-- Elapsed time:/ { print $4 }'
 }
 
 ##
@@ -257,10 +257,11 @@ run_kopia_command() {
     local ret time_elapsed result_string
     echo "++ kopia" "${kopia_command[@]}"
     echo "-------------------------------------------------------------------"
-    env time -f "\nElapsed time: %E" \
+    echo "-- Start time: $(date '+%Y-%m-%d %H:%M:%S') --"
+    env time -f "-- Elapsed time: %E --" \
         "${KW_EXECUTABLE}" "${kopia_command[@]}"
     ret=$?
-    time_elapsed=$(read_time_elapsed)
+    time_elapsed=$(read_elapsed_time)
     echo ""
 
     result_string="Success"
