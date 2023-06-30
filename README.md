@@ -24,6 +24,10 @@ as setting a schedule for each policy and using systemd to start the service.
 
 # Kopia Configuration - CLI
 
+## Set global policy
+- Retention
+- Compression
+
 ## Set new policy
 ```
 kopia policy set --before-snapshot-root-action </full/path/to/script.sh> </full/path/to/backup/>
