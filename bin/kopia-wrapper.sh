@@ -193,9 +193,17 @@ result_summary() {
 #   KOPIA_WRAPPER_COMMAND_FAILED
 #   KOPIA_WRAPPER_NOTIFY
 #   KOPIA_WRAPPER_LOG
+#   KW_NOTIFY
 #
 notify_and_clean() {
     stop_logfile
+
+    if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "false" ]] &&
+            [[ "${KW_NOTIFY}" == "ERRORS" ]]; then
+        # No commands failed, and notify only on errors, clean up and return.
+        rm -f "${KOPIA_WRAPPER_LOG}"
+        return
+    fi
 
     if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "true" ]]; then
         parse_notification_vars "Failed"
