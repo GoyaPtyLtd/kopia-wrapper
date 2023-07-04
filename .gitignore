@@ -1,3 +1,4 @@
 kopia-wrapper.conf
 kopia-environment.conf
 kopia-repository.conf*
+ui-preferences.json
