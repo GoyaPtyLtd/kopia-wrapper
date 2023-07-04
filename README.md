@@ -14,13 +14,26 @@ definitions within Kopia, migration to Kopia server should be as simple
 as setting a schedule for each policy and using systemd to start the service.
 
 ## Notes
- - Supports [Apprise Push Notifications](https://github.com/caronc/apprise) to
-   send notifications to many popular services.
- - Do not set a schedule for Kopia policies. It is ignored by kopia-wrapper and
-   would cause Kopia server (or kopia-ui) to perform snapshots itself if it
-   is running (which contradicts the whole purpose of kopia-wrapper).
+  - Supports [Apprise Push Notifications](https://github.com/caronc/apprise) to
+    send notifications to many popular services.
+  - Do not set a schedule for Kopia policies. It is ignored by kopia-wrapper and
+    would cause Kopia server (or kopia-ui) to perform snapshots itself if it
+    is running (which contradicts the whole purpose of kopia-wrapper).
 
 # Installation
+  - [Install Kopia](https://kopia.io/docs/installation/)
+  - Clone kopia-wrapper Git repository
+    ```
+    sudo git clone https://github.com/GoyaPtyLtd/kopia-wrapper.git /etc/kopia-wrapper/
+    ```
+  - Initialise kopia-wrapper
+    ```
+    cd /etc/kopia-wrapper
+    sudo cp kopia-environment.conf.example kopia-environment.conf
+    sudo cp kopia-wrapper.conf.example kopia-wrapper.conf
+    sudo chmod og-rwx kopia-environment.conf kopia-wrapper.conf
+    ```
+  - Edit kopia-wrapper conf files
 
 # Kopia Configuration - CLI
 
