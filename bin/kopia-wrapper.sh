@@ -317,6 +317,7 @@ run_snapshots_command() {
             "snapshot"
             "create"
             "--force-enable-actions"
+            "--no-progress"
             "${policy_path}"
         )
         run_kopia_command "${kopia_command[@]}"
