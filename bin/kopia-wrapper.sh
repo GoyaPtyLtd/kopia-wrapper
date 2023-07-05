@@ -26,8 +26,8 @@ set -u
 # Show usage
 #
 usage() {
-    cat <<EO_USAGE
-
+    echo -n "
+Version: ${KOPIA_WRAPPER_VERSION}
 Usage: $(basename "$0") [-h|--help] <commands>
   -h          : This help.
 
@@ -36,7 +36,7 @@ Usage: $(basename "$0") [-h|--help] <commands>
     maintenance-quick   : Quick maintenance.
     maintenance-full    : Full maintenance.
 
-EO_USAGE
+"
 }
 
 ##
@@ -352,12 +352,25 @@ run_maintenance_command() {
 }
 
 ##
+# Send first parameter to stderr, and exit with second parameter.
+#
+# Parameters:
+#   $1 - String to send to stderr
+#   $2 - Exit code
+#
+error_exit() {
+    echo "$1" 1>&2
+    exit $2
+}
+
+##
 # Main function
 #
 # Globals:
 #   KOPIA_WRAPPER_HOME - Calculated parent directory of this script's dir.
 #   KOPIA_WRAPPER_COMMANDS - from command line parameters.
 #   KOPIA_WRAPPER_COMMAND_FAILED - false, set true if any command fails.
+#   KOPIA_WRAPPER_VERSION
 #   Variables defined in kopia-wrapper.conf
 #
 # Parameters:
@@ -367,12 +380,19 @@ main() {
     KOPIA_WRAPPER_HOME="$(realpath -z "$0" | xargs -0 dirname -z | xargs -0 dirname)"
     readonly KOPIA_WRAPPER_HOME
 
-    source "${KOPIA_WRAPPER_HOME}/kopia-wrapper.conf" || exit 1
+    source "${KOPIA_WRAPPER_HOME}/kopia-wrapper.conf" ||
+        error_exit "Failed to read kopia-wrapper.conf" 1
 
     # Ensure kopia environment is configured
     set -o allexport
-    source "${KOPIA_WRAPPER_HOME}/kopia-environment.conf" || exit 1
+    source "${KOPIA_WRAPPER_HOME}/kopia-environment.conf" ||
+        error_exit "Failed to read kopia-environment.conf" 1
     set +o allexport
+
+    KOPIA_WRAPPER_VERSION="Unknown"
+    read -r KOPIA_WRAPPER_VERSION <"${KOPIA_WRAPPER_HOME}/VERSION" ||
+        error_exit "Failed to read VERSION" 1
+    readonly KOPIA_WRAPPER_VERSION
 
     parse_parameters "$@"
 
