@@ -11,7 +11,7 @@ KW_EXECUTABLE="kopia"
 # When to send notification:
 #   ALWAYS - whenever kopia runs.
 #   ERRORS - only when kopia fails with a non-zero exit code.
-KW_NOTIFY="ALWAYS"
+KW_NOTIFY_ON="ALWAYS"
 
 # Subject/Title to use as first line of message body, also populates the
 # token %SUBJECT%.

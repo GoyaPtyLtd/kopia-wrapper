@@ -35,6 +35,7 @@ Usage: $(basename "$0") [-h|--help] <commands>
     snapshots           : Snapshot each kopia policy sequentially.
     maintenance-quick   : Quick maintenance.
     maintenance-full    : Full maintenance.
+    notification-test   : Send test notification.
 
 "
 }
@@ -55,7 +56,7 @@ parse_parameters() {
                 usage
                 exit
                 ;;
-            snapshots|maintenance-quick|maintenance-full)
+            snapshots|maintenance-quick|maintenance-full|notification-test)
                 KOPIA_WRAPPER_COMMANDS+=("$1")
                 ;;
             *)
@@ -82,7 +83,7 @@ parse_parameters() {
 #   Variables defined in kopia-wrapper.conf
 #
 # Parameters:
-#   $1 Success|Failed - Success only if all kopia commands were successful.
+#   $1 - Status string
 #
 # Output: none
 parse_notification_vars() {
@@ -192,23 +193,27 @@ result_summary() {
 # Globals:
 #   KOPIA_WRAPPER_COMMAND_FAILED
 #   KOPIA_WRAPPER_NOTIFY
+#   KOPIA_WRAPPER_NOTIFY_TEST
 #   KOPIA_WRAPPER_LOG
 #   KW_NOTIFY
 #
 notify_and_clean() {
     stop_logfile
 
+    if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "true" ]]; then
+        parse_notification_vars "Failed"
+    elif [[ "${KOPIA_WRAPPER_NOTIFY_TEST}" == "true" ]]; then
+        KW_NOTIFY_ON="ALWAYS"
+        parse_notification_vars "Test"
+    else
+        parse_notification_vars "Success"
+    fi
+
     if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "false" ]] &&
-            [[ "${KW_NOTIFY}" == "ERRORS" ]]; then
+            [[ "${KW_NOTIFY_ON}" == "ERRORS" ]]; then
         # No commands failed, and notify only on errors, clean up and return.
         rm -f "${KOPIA_WRAPPER_LOG}"
         return
-    fi
-
-    if [[ "${KOPIA_WRAPPER_COMMAND_FAILED}" == "true" ]]; then
-        parse_notification_vars "Failed"
-    else
-        parse_notification_vars "Success"
     fi
 
     if [[ ${#KOPIA_WRAPPER_NOTIFY[@]} -gt 0 ]]; then
@@ -352,6 +357,20 @@ run_maintenance_command() {
 }
 
 ##
+# Runs nothing, will cause notification subject to be "Test" and notification
+# to be sent even if configured to only send on errors.
+#
+# Globals:
+#   KOPIA_WRAPPER_NOTIFY_TEST
+#
+run_notification_test_command() {
+    KOPIA_WRAPPER_NOTIFY_TEST="true"
+    echo "++ Test kopia-wrapper notification"
+    echo "-------------------------------------------------------------------"
+    echo ""
+}
+
+##
 # Send first parameter to stderr, and exit with second parameter.
 #
 # Parameters:
@@ -370,6 +389,7 @@ error_exit() {
 #   KOPIA_WRAPPER_HOME - Calculated parent directory of this script's dir.
 #   KOPIA_WRAPPER_COMMANDS - from command line parameters.
 #   KOPIA_WRAPPER_COMMAND_FAILED - false, set true if any command fails.
+#   KOPIA_WRAPPER_NOTIFY_TEST
 #   KOPIA_WRAPPER_VERSION
 #   Variables defined in kopia-wrapper.conf
 #
@@ -377,6 +397,13 @@ error_exit() {
 #   $@ - All command line parameters passed in to script.
 #
 main() {
+    start_logfile
+
+    trap notify_and_clean EXIT
+
+    KOPIA_WRAPPER_COMMAND_FAILED="false"
+    KOPIA_WRAPPER_NOTIFY_TEST="false"
+
     KOPIA_WRAPPER_HOME="$(realpath -z "$0" | xargs -0 dirname -z | xargs -0 dirname)"
     readonly KOPIA_WRAPPER_HOME
 
@@ -396,18 +423,12 @@ main() {
 
     parse_parameters "$@"
 
-    KOPIA_WRAPPER_COMMAND_FAILED="false"
-
     # Make sure we are the only instance of this script running.
     exec 234< $0
     if ! flock -n -x 234; then
         echo "$$: $0: failed to get lock, exiting."
         exit 1
     fi
-
-    start_logfile
-
-    trap notify_and_clean EXIT
 
     for command in "${KOPIA_WRAPPER_COMMANDS[@]}"; do
         case "${command}" in
@@ -419,6 +440,9 @@ main() {
                 ;;
             maintenance-full)
                 run_maintenance_command "full"
+                ;;
+            notification-test)
+                run_notification_test_command
                 ;;
             *)
                 # Ignore
