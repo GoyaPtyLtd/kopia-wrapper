@@ -22,7 +22,7 @@ MYSQLDUMP=(
 )
 
 COMPRESSOR=(
-	"/bin/gzip"
+    "/bin/gzip"
     "-9"
     "--rsyncable"
 )
