@@ -32,7 +32,8 @@ Usage: $(basename "$0") [-h|--help] <commands>
   -h          : This help.
 
   <commands>  : Run one or more space separated commands in order.
-    snapshots           : Snapshot each kopia policy sequentially.
+    snapshots           : Snapshot all kopia policies sequentially.
+    snapshot [/path ..] : Snapshot only given policy paths sequentially.
     maintenance-quick   : Quick maintenance.
     maintenance-full    : Full maintenance.
     notification-test   : Send test notification.
@@ -41,23 +42,41 @@ Usage: $(basename "$0") [-h|--help] <commands>
 }
 
 ##
+# Send first parameter to stderr, and exit with second parameter.
+#
+# Parameters:
+#   $1 - String to send to stderr
+#   $2 - Exit code
+#
+error_exit() {
+    echo "$1" 1>&2
+    exit $2
+}
+
+##
 # Parse command line parameters
 #
 # Globals:
 #   KOPIA_WRAPPER_COMMANDS
+#   KOPIA_WRAPPER_PATHS
 #
 # Output: none
 parse_parameters() {
     declare -ga KOPIA_WRAPPER_COMMANDS=()
+    declare -ga KOPIA_WRAPPER_PATHS=()
 
+    shopt -s extglob
     while [[ $# -ge 1 ]]; do
         case "$1" in
             -h|--help)
                 usage
                 exit
                 ;;
-            snapshots|maintenance-quick|maintenance-full|notification-test)
+            snapshots|snapshot|maintenance-quick|maintenance-full|notification-test)
                 KOPIA_WRAPPER_COMMANDS+=("$1")
+                ;;
+            /*)
+                KOPIA_WRAPPER_PATHS+=("$1")
                 ;;
             *)
                 usage
@@ -252,6 +271,33 @@ read_elapsed_time() {
 }
 
 ##
+# Add provided string to KOPIA_WRAPPER_COMMAND_RESULTS, initialises headers
+# if not already.
+#
+# Globals:
+#   KOPIA_WRAPPER_COMMAND_RESULTS - summarised result of command appended.
+#
+# Parameters:
+#   $1 - string to append, in the format of:
+#           printf "%-8s | %4s | %11s | %s\n" \
+#                  "${result_string}" "${ret}" "${time_elapsed}" "${command}"
+#
+add_kopia_command_result() {
+    if [[ ! -v KOPIA_WRAPPER_COMMAND_RESULTS[@] ]]; then
+        # Add header before we add first result
+        local header
+        header=$(
+            printf "%-8s | %4s | %11s | %s\n" \
+                    "Result" "Code" "Elapsed" "Command"
+            printf "%-8s + %4s + %11s + %s" \
+                    "--------" "----" "-----------" "-------"
+        )
+        KOPIA_WRAPPER_COMMAND_RESULTS+=( "${header}" )
+    fi
+    KOPIA_WRAPPER_COMMAND_RESULTS+=("$1")
+}
+
+##
 # Execute provided kopia command, capturing elapsed time and return codes.
 #
 # Output:
@@ -283,27 +329,16 @@ run_kopia_command() {
         result_string="Failed"
     fi
 
-    if [[ ! -v KOPIA_WRAPPER_COMMAND_RESULTS[@] ]]; then
-        # Add header before we add first result
-        local header
-        header=$(
-            printf "%-8s | %4s | %11s | %s\n" \
-                    "Result" "Code" "Elapsed" "Command"
-            printf "%-8s + %4s + %11s + %s" \
-                    "--------" "----" "-----------" "-------"
-        )
-        KOPIA_WRAPPER_COMMAND_RESULTS+=( "${header}" )
-    fi
     result_string=$(
         printf "%-8s | %4s | %11s | " \
                "${result_string}" "${ret}" "${time_elapsed}"
         echo "${kopia_command[@]}"
     )
-    KOPIA_WRAPPER_COMMAND_RESULTS+=("${result_string}")
+    add_kopia_command_result "$result_string"
 }
 
 ##
-# Generate kopia snapshot commands, and execute each sequentially.
+# Generate kopia snapshot commands from policies, execute each sequentially.
 #
 run_snapshots_command() {
     # Gather kopia policies, ignore the one called "(global)"
@@ -315,6 +350,7 @@ run_snapshots_command() {
                                     )
 
     # Foreach policy, generate command and execute.
+    local policy
     for policy in "${kopia_policies[@]}"; do
         local policy_path kopia_command
         policy_path="${policy#*:}"
@@ -324,6 +360,57 @@ run_snapshots_command() {
             "--force-enable-actions"
             "--no-progress"
             "${policy_path}"
+        )
+        run_kopia_command "${kopia_command[@]}"
+    done
+}
+
+##
+# Generate kopia snapshot commands from paths, execute each sequentially.
+# Path must be found as a defined policy.
+#
+# Globals:
+#   KOPIA_WRAPPER_PATHS
+#
+run_snapshot_command() {
+    # Gather kopia policies, ignore the one called "(global)"
+    declare -a kopia_policies
+    readarray -t kopia_policies < <(
+                                        "${KW_EXECUTABLE}" policies list |
+                                        awk '{print $2}' |
+                                        grep -v "\(global\)"
+                                    )
+    declare -A kopia_policy_paths
+    local policy
+    for policy in "${kopia_policies[@]}"; do
+        local policy_path
+        policy_path="${policy#*:}"
+        kopia_policy_paths[${policy_path}]=1
+    done
+
+    # Foreach path, generate command and execute.
+    local path
+    for path in "${KOPIA_WRAPPER_PATHS[@]}"; do
+        local kopia_command
+
+        if [[ ! -v kopia_policy_paths[$path] ]]; then
+            KOPIA_WRAPPER_COMMAND_FAILED="true"
+            local result_string
+            result_string=$(
+                printf "%-8s | %4s | %11s | " \
+                    "Error" "" ""
+                echo "!! No kopia policy found matching path: '${path}'"
+            )
+            add_kopia_command_result "$result_string"
+            continue
+        fi
+
+        kopia_command=(
+            "snapshot"
+            "create"
+            "--force-enable-actions"
+            "--no-progress"
+            "${path}"
         )
         run_kopia_command "${kopia_command[@]}"
     done
@@ -368,18 +455,6 @@ run_notification_test_command() {
     echo "++ Test kopia-wrapper notification"
     echo "-------------------------------------------------------------------"
     echo ""
-}
-
-##
-# Send first parameter to stderr, and exit with second parameter.
-#
-# Parameters:
-#   $1 - String to send to stderr
-#   $2 - Exit code
-#
-error_exit() {
-    echo "$1" 1>&2
-    exit $2
 }
 
 ##
@@ -434,6 +509,9 @@ main() {
         case "${command}" in
             snapshots)
                 run_snapshots_command
+                ;;
+            snapshot)
+                run_snapshot_command
                 ;;
             maintenance-quick)
                 run_maintenance_command "quick"
